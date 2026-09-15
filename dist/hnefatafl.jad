@@ -1,8 +1,8 @@
 MIDlet-Name: Hnefatafl
-MIDlet-Version: 1.0.0
+MIDlet-Version: 1.0.1
 MIDlet-Vendor: Private
 MIDlet-1: Hnefatafl, , tafl.TaflMIDlet
 MicroEdition-Configuration: CLDC-1.1
 MicroEdition-Profile: MIDP-2.0
 MIDlet-Jar-URL: hnefatafl.jar
-MIDlet-Jar-Size: 14467
+MIDlet-Jar-Size: 15021

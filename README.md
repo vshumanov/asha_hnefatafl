@@ -41,11 +41,12 @@ also no threefold-repetition draw. Everything above is enforced exactly.
 | Key | Action |
 |-----|--------|
 | `2` `4` `6` `8` or D-pad | move the cursor |
-| `5` or Fire | pick up your piece / place it on a highlighted square |
+| D-pad centre / Fire (or `5`) | pick up your piece / place it on a highlighted square |
+| left softkey (or `#`) | open the menu |
 | `*` | cancel the selection |
-| `#` | help overlay |
-| Options (soft menu) | New game · Switch side · Undo · Level · Help · Exit |
 
+The menu (own on-canvas list, navigate with up/down, centre to choose, left
+softkey or `*` to close): New game · Switch side · Undo · Level · Help · Exit.
 Green dots show the legal destinations of the selected piece. **Level** cycles
 Easy/Normal/Hard (search depth 1/2/3). You play the king side by default; *Switch
 side* flips it and starts a new game.

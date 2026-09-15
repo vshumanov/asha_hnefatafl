@@ -2,19 +2,24 @@ package tafl;
 
 import java.util.Vector;
 import javax.microedition.lcdui.Canvas;
-import javax.microedition.lcdui.Command;
-import javax.microedition.lcdui.CommandListener;
 import javax.microedition.lcdui.Display;
-import javax.microedition.lcdui.Displayable;
 import javax.microedition.lcdui.Font;
 import javax.microedition.lcdui.Graphics;
 
 /**
  * Full-screen board: rendering, ITU-T keypad control, and the human-vs-AI game
- * loop. Non-touch: 2/4/6/8 (or the D-pad) move the cursor, 5/FIRE selects, *
- * cancels, and the Options menu holds New / Side / Undo / Level / Help / Exit.
+ * loop. Non-touch:
+ *   2/4/6/8 or D-pad  move the cursor
+ *   D-pad centre / Fire (or 5)  select / go
+ *   left softkey (or #)  open the menu
+ *   *  cancel selection
+ * The menu is drawn on-canvas (no MIDP Commands) so the left softkey is ours.
  */
-public final class BoardView extends Canvas implements CommandListener {
+public final class BoardView extends Canvas {
+
+    // Nokia / Series 40 softkey key codes.
+    private static final int LSK = -6;   // left softkey
+    private static final int RSK = -7;   // right softkey
 
     // palette (0xRRGGBB)
     private static final int BG        = 0x0f1216;
@@ -32,6 +37,8 @@ public final class BoardView extends Canvas implements CommandListener {
     private static final int DEST      = 0x2f9e4a;
     private static final int TEXT      = 0xf2efe6;
     private static final int BAR       = 0x1b2026;
+    private static final int MENU_BG   = 0x161b21;
+    private static final int MENU_HI   = 0x2f9e4a;
 
     private final TaflMIDlet host;
     private final Display display;
@@ -51,18 +58,18 @@ public final class BoardView extends Canvas implements CommandListener {
     private int gen;                                // invalidates stale AI results
     private int pendingMove;
 
+    // on-canvas menu
+    private boolean showMenu;
+    private int menuIndex;
+    private static final int MENU_NEW = 0, MENU_SIDE = 1, MENU_UNDO = 2,
+                             MENU_LEVEL = 3, MENU_HELP = 4, MENU_EXIT = 5,
+                             MENU_COUNT = 6;
+
     private final Font fSmall;
     private final Font fBold;
 
     private final AiWorker worker = new AiWorker();
     private final Applier applier = new Applier();
-
-    private final Command newCmd    = new Command("New game", Command.SCREEN, 1);
-    private final Command sideCmd   = new Command("Switch side", Command.SCREEN, 2);
-    private final Command undoCmd   = new Command("Undo", Command.SCREEN, 3);
-    private final Command levelCmd  = new Command("Level", Command.SCREEN, 4);
-    private final Command helpCmd   = new Command("Help", Command.HELP, 5);
-    private final Command exitCmd   = new Command("Exit", Command.EXIT, 6);
 
     public BoardView(TaflMIDlet host, Display display) {
         this.host = host;
@@ -70,13 +77,6 @@ public final class BoardView extends Canvas implements CommandListener {
         setFullScreenMode(true);
         fSmall = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL);
         fBold  = Font.getFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL);
-        addCommand(newCmd);
-        addCommand(sideCmd);
-        addCommand(undoCmd);
-        addCommand(levelCmd);
-        addCommand(helpCmd);
-        addCommand(exitCmd);
-        setCommandListener(this);
         applyLevel();
         newGame();
     }
@@ -103,6 +103,7 @@ public final class BoardView extends Canvas implements CommandListener {
         cursor = Board.THRONE;
         aiThinking = false;
         showHelp = false;
+        showMenu = false;
         repaint();
         if (!humanTurn()) startAI();
     }
@@ -114,18 +115,21 @@ public final class BoardView extends Canvas implements CommandListener {
     // ---- input -----------------------------------------------------------
 
     protected void keyPressed(int key) {
-        if (showHelp) { showHelp = false; repaint(); return; }
-
         int ga = 0;
         try { ga = getGameAction(key); } catch (Exception e) { ga = 0; }
+
+        if (showHelp) { showHelp = false; repaint(); return; }
+        if (showMenu) { menuKey(key, ga); return; }
+
+        // left softkey (or #) opens the menu
+        if (key == LSK || key == KEY_POUND) { openMenu(); return; }
 
         if (ga == UP || key == KEY_NUM2)         moveCursor(-1, 0);
         else if (ga == DOWN || key == KEY_NUM8)  moveCursor(1, 0);
         else if (ga == LEFT || key == KEY_NUM4)  moveCursor(0, -1);
         else if (ga == RIGHT || key == KEY_NUM6) moveCursor(0, 1);
-        else if (ga == FIRE || key == KEY_NUM5)  doSelect();
+        else if (ga == FIRE || key == KEY_NUM5)  doSelect();   // D-pad centre = go
         else if (key == KEY_STAR)                { selected = -1; clearDests(); repaint(); }
-        else if (key == KEY_POUND)               { showHelp = true; repaint(); }
     }
 
     private void moveCursor(int dr, int dc) {
@@ -204,25 +208,40 @@ public final class BoardView extends Canvas implements CommandListener {
         }
     }
 
-    // ---- commands --------------------------------------------------------
+    // ---- menu ------------------------------------------------------------
 
-    public void commandAction(Command c, Displayable d) {
-        if (c == newCmd) {
-            newGame();
-        } else if (c == sideCmd) {
-            humanIsAttacker = !humanIsAttacker;
-            newGame();
-        } else if (c == undoCmd) {
-            undoMove();
-        } else if (c == levelCmd) {
-            level = level % 3 + 1;
-            applyLevel();
-            repaint();
-        } else if (c == helpCmd) {
-            showHelp = true;
-            repaint();
-        } else if (c == exitCmd) {
-            host.quit();
+    private void openMenu() {
+        showMenu = true;
+        menuIndex = 0;
+        repaint();
+    }
+
+    private void menuKey(int key, int ga) {
+        if (ga == UP || key == KEY_NUM2) {
+            menuIndex = (menuIndex + MENU_COUNT - 1) % MENU_COUNT; repaint();
+        } else if (ga == DOWN || key == KEY_NUM8) {
+            menuIndex = (menuIndex + 1) % MENU_COUNT; repaint();
+        } else if (ga == FIRE || key == KEY_NUM5) {
+            activateMenu();
+        } else if (key == LSK || key == RSK || key == KEY_STAR || key == KEY_POUND) {
+            showMenu = false; repaint();     // close
+        }
+    }
+
+    private void activateMenu() {
+        switch (menuIndex) {
+            case MENU_NEW:
+                showMenu = false; newGame(); break;
+            case MENU_SIDE:
+                showMenu = false; humanIsAttacker = !humanIsAttacker; newGame(); break;
+            case MENU_UNDO:
+                showMenu = false; undoMove(); break;
+            case MENU_LEVEL:
+                level = level % 3 + 1; applyLevel(); repaint(); break;   // stay in menu
+            case MENU_HELP:
+                showMenu = false; showHelp = true; repaint(); break;
+            case MENU_EXIT:
+                host.quit(); break;
         }
     }
 
@@ -239,6 +258,10 @@ public final class BoardView extends Canvas implements CommandListener {
         Undo u = (Undo) history.lastElement();
         history.removeElementAt(history.size() - 1);
         board.undo(u);
+    }
+
+    private String levelName() {
+        return level == 1 ? "Easy" : (level == 2 ? "Normal" : "Hard");
     }
 
     // ---- rendering -------------------------------------------------------
@@ -261,6 +284,7 @@ public final class BoardView extends Canvas implements CommandListener {
         drawBoard(g, ox, oy, cell);
         drawBottomBar(g, w, h, bot);
 
+        if (showMenu) drawMenu(g, w, h);
         if (showHelp) drawHelp(g, w, h);
     }
 
@@ -331,12 +355,17 @@ public final class BoardView extends Canvas implements CommandListener {
     private void drawBottomBar(Graphics g, int w, int h, int bot) {
         g.setColor(BAR);
         g.fillRect(0, h - bot, w, bot);
-        g.setColor(TEXT);
         g.setFont(fSmall);
+        // left softkey label
+        g.setColor(CURSOR);
+        g.drawString("Menu", 3, h - bot + 2, Graphics.LEFT | Graphics.TOP);
+        // counts, right-aligned
+        g.setColor(TEXT);
         String s = "A" + board.countPieces(Board.ATTACKER)
                  + " D" + (board.countPieces(Board.DEFENDER) + 1)
-                 + " Lv" + level + "  " + (humanIsAttacker ? "You=Att" : "You=King");
-        g.drawString(s, 3, h - bot + 2, Graphics.LEFT | Graphics.TOP);
+                 + " " + levelName().charAt(0)
+                 + " " + (humanIsAttacker ? "Att" : "King");
+        g.drawString(s, w - 3, h - bot + 2, Graphics.RIGHT | Graphics.TOP);
     }
 
     private String statusLine() {
@@ -349,11 +378,45 @@ public final class BoardView extends Canvas implements CommandListener {
                            : "AI move";
     }
 
+    private void drawMenu(Graphics g, int w, int h) {
+        String[] items = new String[MENU_COUNT];
+        items[MENU_NEW]   = "New game";
+        items[MENU_SIDE]  = "Switch side (" + (humanIsAttacker ? "King" : "Att") + ")";
+        items[MENU_UNDO]  = "Undo";
+        items[MENU_LEVEL] = "Level: " + levelName();
+        items[MENU_HELP]  = "Help";
+        items[MENU_EXIT]  = "Exit";
+
+        g.setFont(fBold);
+        int lh = fBold.getHeight() + 6;
+        int pw = w * 3 / 4;
+        int ph = lh * MENU_COUNT + 10;
+        int px = (w - pw) / 2;
+        int py = (h - ph) / 2;
+
+        g.setColor(MENU_BG);
+        g.fillRect(px, py, pw, ph);
+        g.setColor(MENU_HI);
+        g.drawRect(px, py, pw, ph);
+
+        for (int i = 0; i < MENU_COUNT; i++) {
+            int y = py + 5 + i * lh;
+            if (i == menuIndex) {
+                g.setColor(MENU_HI);
+                g.fillRect(px + 2, y - 1, pw - 4, lh);
+                g.setColor(0xffffff);
+            } else {
+                g.setColor(TEXT);
+            }
+            g.drawString(items[i], px + 8, y + 2, Graphics.LEFT | Graphics.TOP);
+        }
+    }
+
     private void drawHelp(Graphics g, int w, int h) {
         g.setColor(BAR);
         int m = 8;
         g.fillRect(m, m, w - 2 * m, h - 2 * m);
-        g.setColor(0x3fd463);
+        g.setColor(MENU_HI);
         g.drawRect(m, m, w - 2 * m, h - 2 * m);
         g.setColor(TEXT);
         g.setFont(fSmall);
@@ -370,9 +433,9 @@ public final class BoardView extends Canvas implements CommandListener {
             "Capture: flank a foe 1v1.",
             "",
             "2/4/6/8 or D-pad: move",
-            "5 / Fire: pick / place",
-            "* : cancel   # : this help",
-            "Options: menu",
+            "D-pad centre / Fire: go",
+            "Left softkey: menu",
+            "* : cancel",
             "",
             "(press any key)"
         };
