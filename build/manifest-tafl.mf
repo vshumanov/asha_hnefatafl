@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+MIDlet-Name: Hnefatafl
+MIDlet-Version: 1.0.0
+MIDlet-Vendor: Private
+MIDlet-1: Hnefatafl, , tafl.TaflMIDlet
+MicroEdition-Configuration: CLDC-1.1
+MicroEdition-Profile: MIDP-2.0
